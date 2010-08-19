@@ -6,7 +6,6 @@ pygtk.require('2.0')
 import gtk
 import vte
 import subprocess
-import mi
 
 class GdbInterface:
 	def read_until_prompt(self):

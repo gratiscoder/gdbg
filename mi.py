@@ -61,13 +61,11 @@ def flatten(x):
 			result.append(el)
 	return result
 
-def log(s):
-	print time.ctime()+" "+s
-
-class GdbConsole:
-	def __init__(self, verbose=0):
-		self.__verbose = verbose
+class Gdb:
+	def __init__(self, handler=None, verbose=0):
+		self.verbose = verbose
 		self.proc = Popen(GDB_CMDLINE, 0, shell=True, stdin=PIPE, stdout=PIPE, stderr=STDOUT)
+		print self.read_until_prompt()
 
 	def read_until_prompt(self):
 		lines = []
@@ -75,187 +73,10 @@ class GdbConsole:
 			line = self.proc.stdout.readline()
 			if not line or line == GDB_PROMPT:
 				return lines
-			if self.__verbose >= 3:
+			if self.verbose >= 3:
 				sys.stdout.write(line)
-			lines.append(line)
-
-	def send_cmd(self, cmd):
-		cmd_line = cmd + '\n'
-		self.proc.stdin.write(cmd_line)
-		#sys.stdout.write('$ ' + cmd_line)
-
-class GdbReader:
-	def __init__(self, gdb, dispatcher):
-		self.__gdb = gdb
-		self.__console = gdb.console
-		self.__dispatcher = dispatcher
-		self.__thread = threading.Thread(target=self.__run_loop, name='GdbReader')
-		self.__thread.setDaemon(True)
-
-	def start(self):
-		self.__thread.start()
-
-	def stop(self):
-		self.__thread.join()
-
-	def __run_loop(self):
-		while(True):
-			lines = self.__console.read_until_prompt()
-			if not lines: break
-			for line in lines:
-				try:
-					output = mi_parser.process(line)
-				except Exception:
-					class GdbUnknownEvent:
-						def __init__(self, line):
-							self.type = 'unknown'
-							self.record_type = 'stream'
-							self.value = line
-						def __repr__(self): return self.value
-					output = GdbUnknownEvent(line)
-				try:
-					self.__dispatcher.post_event(output)
-				except Exception:
-					import traceback
-					traceback.print_exc()
-
-class InferiorReader:
-	def __init__(self, gdb, dispatcher):
-		self.__gdb = gdb
-		self.__dispatcher = dispatcher
-		self.__thread = threading.Thread(target=self.__run_loop, name='InferiorReader')
-		self.__thread.setDaemon(True)
-
-	def start(self):
-		self.__master, self.__slave = os.openpty()
-		self.__stdout = os.fdopen(self.__master)
-		self.tty = os.ttyname(self.__slave)
-		self.__gdb.inferior_tty_set(self.tty)
-		self.__thread.start()
-
-	def stop(self):
-		os.close(self.__slave)
-		self.__stdout.close()
-		self.__thread.join()
-
-	def __run_loop(self):
-		while(True):
-			line = self.__stdout.readline()
-			if not line:
-				break
-			#print 'inferior: %s' % line
-			class GdbTargetEvent:
-				def __init__(self, line):
-					self.type = 'target'
-					self.record_type = 'stream'
-					self.value = line
-				def __repr__(self): return self.value
-			self.__dispatcher.post_event(GdbTargetEvent(line))
-
-class GdbError(Exception): pass
-
-class GdbAsyncResult:
-	def __init__(self, dispatcher, token):
-		self.__dispatcher = dispatcher
-		self.__condition = threading.Condition()
-		self.token = token
-		self.result = None
-		self.status = 'pending'
-		self.__dispatcher.register_token(self.token, self.__on_complete)
-
-	def __on_complete(self, status, result):
-		try:
-			self.__condition.acquire()
-			self.status = status
-			self.result = result
-			self.__condition.notify()
-		finally:
-			self.__condition.release()
-
-	def wait(self):
-		try:
-			self.__condition.acquire()
-			while not self.result:
-				self.__condition.wait()
-		finally:
-			self.__condition.release()
-
-		if self.status == 'error':
-			raise GdbError, self.result.msg
-		return self.result
-
-class GdbDispatcher:
-	def __init__(self, gdb, handler):
-		self.__gdb = gdb
-		self.__handler = handler
-		if self.__handler: self.__handler.on_gdb(gdb)
-		self.__delegates = {}
-
-	def __print_event(self, event):
-		if event.token:
-			token = '[' + event.token + ']'
-		else:
-			token = ''
-		print '%s: %s %s' % (event.type, token, event.class_)
-
-	def __print_output(self, output):
-		sys.stdout.write('%s: %s' % (output.type, output.value))
-
-	def __call_handler(self, method, args):
-		if self.__handler and hasattr(self.__handler, method):
-			attr = getattr(self.__handler, method)
-			apply(attr, args)
-
-	def __call_delegate(self, token, status, results):
-		if self.__delegates.has_key(token):
-			delegate = self.__delegates[token]
-			delegate(status, results)
-			self.__delegates.pop(token)
-
-	def post_event(self, event):
-		if event.record_type == 'stream':
-			if self.__gdb.verbose: self.__print_output(event)
-			self.__call_handler('on_' + event.type, [event.value])
-		else:
-			if self.__gdb.verbose: self.__print_event(event)
-			if self.__gdb.verbose >= 2: print event.result
-			status = event.class_
-
-			# Catch this special case before calling on the delegate because
-			# we don't want to remove the registered token.
-			# This event can be treated really as a global one
-			if status == 'running':
-				self.__call_handler('on_running', [event])
-				return
-
-			self.__call_delegate(event.token, event.class_, event.result)
-			if status == 'stopped':
-				self.__call_handler('on_stopped', [event])
-			elif status == 'done':
-				self.__call_handler('on_done', [event.token, event.result])
-			elif status == 'error':
-				self.__call_handler('on_error', [event.token, event.result])
-			elif event.type == 'result' or event.type == 'exec':
-				self.__call_handler('on_complete', [event.token, status, event.result])
-			else:
-				self.__call_handler('on_' + event.type, [event])
-
-	def register_token(self, token, delegate):
-		self.__delegates[token] = delegate
-
-class Gdb:
-	def __init__(self, handler=None, verbose=0):
-		self.console = GdbConsole(verbose)
-		self.verbose = verbose
-		self.__next_token = 1
-		self.__dispatcher = GdbDispatcher(self, handler)
-		self.__reader = GdbReader(self, self.__dispatcher)
-#self.__inferior = InferiorReader(self, self.__dispatcher)
-		self.__reader.start(preamble_handler)
-#self.__inferior.start()
-
-	def _reset_inferior_tty(self):
-		self.inferior_tty_set(self.__inferior.tty)
+			lines.append(str(mi_parser.process(line)))
+		return lines
 
 	def _cmd(self, cmd, args=None):
 		if args is not None:
@@ -269,21 +90,11 @@ class Gdb:
 			else:
 				args = str(args)
 			cmd = cmd + ' ' + args
-
-		token = str(self.__next_token)
-		cmd = token + cmd
-		self.__next_token += 1
-
-		ar = GdbAsyncResult(self.__dispatcher, token)
-		self.console.send_cmd(cmd)
-		return ar
+		self.proc.stdin.write(cmd+'\n')
+		return self.read_until_prompt()
 
 ####################################################
 	# general
-	def wait(self):
-		self.__reader.stop()
-		self.__inferior.stop()
-
 	def help(self):
 		return self._cmd('h')
 
