@@ -6,11 +6,18 @@ pygtk.require('2.0')
 import gtk
 import vte
 import subprocess
+import mi
 
 class GdbInterface:
+	def read_until_prompt(self):
+		l = ""
+		while "(gdb) \n" != l:
+			l = self.p.stdout.readline()
+			print l
 	def __init__(self, textview):
 		self.tv = textview
-		self.p = None
+		self.p = subprocess.Popen("gdb -q -n -i mi", shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT)
+		self.read_until_prompt()
 		self.tbuf = textview.get_buffer()
 	def reset(self):
 	#reset debugging state
