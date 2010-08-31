@@ -4,6 +4,7 @@ import pygtk
 pygtk.require('2.0')
 
 import gtk
+import gtk.glade
 import vte
 import subprocess
 
@@ -47,6 +48,16 @@ class GDBG:
 		self.l.set_text("Debugging "+self.curfile)
 		self.infobar.hide()
 	def __init__(self):
+		# set the glade file
+		self.wTree = gtk.glade.XML("gdbg_libglade.glade")
+
+		w = self.wTree.get_widget('main_window')
+		w.show_all
+		w.connect('delete_event', self.delete_event)
+		w.connect('destroy', self.destroy)
+		self.wTree.get_widget('main_window').show_all()
+
+		# Get the main window
 		self.curfile = None
 		w = self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
 		w.set_border_width(5)
@@ -93,7 +104,7 @@ class GDBG:
 		clip = self.clip = gtk.Clipboard()
 		clip.connect("owner-change", self.clipboardevent)
 
-		w.show_all()
+		#w.show_all()
 		infobar.hide()
 
 	def main(self):
