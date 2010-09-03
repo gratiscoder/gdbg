@@ -48,64 +48,13 @@ class GDBG:
 		self.l.set_text("Debugging "+self.curfile)
 		self.infobar.hide()
 	def __init__(self):
-		# set the glade file
-		self.wTree = gtk.glade.XML("gdbg_libglade.glade")
+		# set the gtk builder file
+		self.builder = gtk.Builder()
+		self.builder.add_from_file("gdbg.xml")
+		self.builder.connect_signals(self)
 
-		w = self.wTree.get_widget('main_window')
-		w.show_all
-		w.connect('delete_event', self.delete_event)
-		w.connect('destroy', self.destroy)
-		self.wTree.get_widget('main_window').show_all()
-
-		# Get the main window
-		self.curfile = None
-		w = self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
-		w.set_border_width(5)
-		w.set_default_size(600,600)
-		w.connect("delete_event", self.delete_event)
-		w.connect("destroy", self.destroy)
-
-		vbox = self.main_panel = gtk.VBox()
-		w.add(vbox)
-
-		hbox = self.topbar = gtk.HBox()
-		l = self.l = gtk.Label("No file loaded.")
-		hbox.pack_start(l)
-		vbox.pack_start(hbox, False, False, 10)
-
-		sw = gtk.ScrolledWindow()
-		sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
-		t = self.t = gtk.TextView()
-		t.set_editable(False)
-		t.set_wrap_mode(gtk.WRAP_WORD)
-		sw.add(t)
-		gi = self.gi = GdbInterface(t)
-		self.tbuf = t.get_buffer()
-		self.tbuf.set_text("Go to nautilus/file explorer and just Ctrl+C the executable you want to debug\n\n")
-		vbox.pack_start(sw)
-
-		infobar = self.infobar = gtk.HBox()
-		infolabel = self.infolabel = gtk.Label("Want to debug gdbg?")
-		infobar.pack_start(infolabel)
-		img = gtk.Image()
-		img.set_from_stock(gtk.STOCK_YES, 5)
-		byes = self.byes = gtk.Button()
-		byes.add(img)
-		byes.connect("clicked", self.loadfile)
-		infobar.pack_start(byes, False, False, 10)
-		img = gtk.Image()
-		img.set_from_stock(gtk.STOCK_STOP, 5)
-		bno = self.bno = gtk.Button()
-		bno.add(img)
-		bno.connect("clicked", lambda canc: infobar.hide());
-		infobar.pack_start(bno, False, False, 10)
-		vbox.pack_end(infobar, False, False, 5)
-
-		clip = self.clip = gtk.Clipboard()
-		clip.connect("owner-change", self.clipboardevent)
-
-		#w.show_all()
-		infobar.hide()
+		self.window = self.builder.get_object('main_window')
+		self.window.show_all
 
 	def main(self):
 		gtk.main()
