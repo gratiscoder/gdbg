@@ -11,14 +11,19 @@ import subprocess
 class GdbInterface:
 	def read_until_prompt(self):
 		l = ""
-		while "(gdb) \n" != l:
+		prompt = "(gdb) \n"
+		while prompt != l:
 			l = self.p.stdout.readline()
-			print l
+			if(l == prompt):
+				self.tbuf.insert_at_cursor(l.rstrip('\n'))
+			else:
+				self.tbuf.insert_at_cursor(l)
+			self.tv.scroll_to_mark(self.tbuf.get_insert(), 0)
 	def __init__(self, textview):
 		self.tv = textview
 		self.p = subprocess.Popen("gdb -q -n -i mi", shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT)
-		self.read_until_prompt()
 		self.tbuf = textview.get_buffer()
+		self.read_until_prompt()
 	def reset(self):
 	#reset debugging state
 		if self.p != None:
@@ -33,8 +38,7 @@ class GDBG:
 	def hello(self, widget, data=None):
 		print "Hello World"
 	def delete_event(self, widget, data=None):
-		print "delete event occured"
-		return False
+		gtk.main_quit()
 	def destroy(self, widget, data=None):
 		gtk.main_quit()
 	def clipboardevent(self, clipboard, event):
@@ -52,6 +56,9 @@ class GDBG:
 		self.builder = gtk.Builder()
 		self.builder.add_from_file("gdbg.xml")
 		self.builder.connect_signals(self)
+
+		# initialize GDB interface
+		self.gi = GdbInterface(self.builder.get_object('gdb_console'))
 
 		self.window = self.builder.get_object('main_window')
 		self.window.show_all
