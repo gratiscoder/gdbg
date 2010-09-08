@@ -14,15 +14,36 @@ class GdbInterface:
 		prompt = "(gdb) \n"
 		while prompt != l:
 			l = self.p.stdout.readline()
+		
+			# disable text insert signal handler 
+			# so output from GDB doesn't trigger signal
+			self.tbuf.handler_block(self.sig_id)
+
 			if(l == prompt):
 				self.tbuf.insert_at_cursor(l.rstrip('\n'))
 			else:
 				self.tbuf.insert_at_cursor(l)
-			self.tv.scroll_to_mark(self.tbuf.get_insert(), 0)
+		
+			# enable text insert signal handler 
+			self.tbuf.handler_unblock(self.sig_id)
+
+			self.tv.scroll_to_iter(self.tbuf.get_end_iter(), 0)
+			self.tbuf.apply_tag(self.tag_no_edit, 
+								self.tbuf.get_start_iter(),
+								self.tbuf.get_end_iter())
+		
 	def __init__(self, textview):
+		self.cur_command = ""
+		self.cmd_limit = 100
+		self.cmd_hist = []
+		self.cmd_index = -1
 		self.tv = textview
 		self.p = subprocess.Popen("gdb -q -n -i mi", shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT)
+		self.tag_no_edit = gtk.TextTag('no_edit')
+		self.tag_no_edit.editable = False
 		self.tbuf = textview.get_buffer()
+		self.tbuf.tag_table.add(self.tag_no_edit)
+		self.sig_id = self.tbuf.connect('insert-text', self.console_insert)
 		self.read_until_prompt()
 	def reset(self):
 	#reset debugging state
@@ -33,6 +54,52 @@ class GdbInterface:
 		if self.debugging:
 			reset()
 		#start debugging
+	
+	##########################################################
+	# console_insert: handle inserted text in text buffer
+	def console_insert(self, widget, length, new_text, position, data=None):
+		print new_text
+		self.cur_command += new_text
+		if(new_text.find("\n") >= 0):
+			self.run_command(self.cur_command)
+			self.cur_command = ""
+			# mark the whole buffer as not editable
+			#self.tbuf.apply_tag(self.tag_no_edit, 
+			#					self.tbuf.get_start_iter(),
+			#					self.tbuf.get_end_iter())
+
+	##########################################################
+	# run_command: save command to history, then run it
+	def run_command(self, cmd):
+		# save the command to history and run it
+		self.save_command(cmd)
+		self.p.stdin.write(cmd)
+		self.read_until_prompt()
+	
+	##########################################################
+	# save_command: save a command to the command history list
+	def save_command(self, cmd):
+		if(len(self.cmd_hist) >= self.cmd_limit):
+			self.cmd_hist.pop()
+		self.cmd_hist.append(cmd)
+
+	##########################################################
+	# prev_command: get the previous command in the history
+	def prev_command(self):
+		if(self.cmd_index == -1):
+			self.cmd_index = len(self.cmd_hist)
+		self.cmd_index = max(0, self.cmd_index-1)
+		return self.cmd_hist[self.cmd_index]
+	
+	##########################################################
+	# next_command: get the next command in the history
+	def prev_command(self):
+		if(self.cmd_index == -1):
+			self.cmd_index = len(self.cmd_hist) - 1
+		cmd = self.cmd_hist[self.cmd_index]
+		self.cmd_index += 1
+		return cmd
+
 
 class GDBG:
 	def hello(self, widget, data=None):
