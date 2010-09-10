@@ -3,6 +3,7 @@
 import pygtk
 pygtk.require('2.0')
 
+import mi_parser
 import gtk
 import gtk.glade
 import vte
@@ -10,8 +11,9 @@ import subprocess
 import threading
 
 class GdbInterface:
-	def read_until_prompt(self):
+	def read_until_prompt(self, *args):
 		l = ""
+		cmd = ''.join(v for v in args)
 		prompt = "(gdb) \n"
 		while prompt != l:
 			l = self.p.stdout.readline()
@@ -25,7 +27,9 @@ class GdbInterface:
 			if(l == prompt):
 				self.tbuf.insert_at_cursor(l.rstrip('\n'))
 			else:
-				self.tbuf.insert_at_cursor(l)
+				res = mi_parser.process(l)
+				if(res.record_type == 'stream' and res.value != cmd):
+					self.tbuf.insert_at_cursor(res.value)
 		
 			# enable text insert signal handler 
 			self.tbuf.handler_unblock(self.sig_id)
@@ -42,13 +46,65 @@ class GdbInterface:
 		self.cmd_hist = []
 		self.cmd_index = -1
 		self.tv = textview
+		self.left_control = self.right_control = False
 		self.p = subprocess.Popen("gdb -q -n -i mi", shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT)
 		self.tag_no_edit = gtk.TextTag('no_edit')
 		self.tag_no_edit.set_property('editable', False)
 		self.tbuf = textview.get_buffer()
 		self.tbuf.tag_table.add(self.tag_no_edit)
 		self.sig_id = self.tbuf.connect('insert-text', self.console_insert)
-		self.read_until_prompt()
+		self.tv.connect('key-press-event', self.buffer_key_pressed)
+		self.tv.connect('key-release-event', self.buffer_key_released)
+		self.read_until_prompt("")
+
+	##########################################################
+	# clear_cur_command: clear out the current line and make
+	# way for some new text (a previous or next command)
+	def clear_cur_command(self):
+		start_iter = self.tbuf.get_iter_at_line_offset(
+								self.tbuf.get_line_count() - 1,
+								len("(gdb) "))
+		self.tbuf.delete_interactive(start_iter,
+									 self.tbuf.get_end_iter(),
+									 True)
+
+	
+	##########################################################
+	# buffer_key_pressed: handle events that don't generate
+	# input (like arrow key presses and Ctrl+D) and insert command
+	def buffer_key_pressed(self, widget, event):
+		keyname = gtk.gdk.keyval_name(event.keyval)
+		#print keyname
+		if(keyname == "Up"):
+			self.clear_cur_command()
+			prev = self.prev_command()
+			if(prev != ""):
+				self.tbuf.insert_at_cursor(prev)
+			return True
+		if(keyname == "Down" and self.cmd_index < len(self.cmd_hist)):
+			self.clear_cur_command()
+			nextcmd = self.next_command()
+			if(nextcmd != ""):
+				self.tbuf.insert_at_cursor(nextcmd)
+			return True
+		if(keyname == 'Control_R'):
+			self.right_control = True
+		if(keyname == 'Control_L'):
+			self.left_control = True
+		if(keyname == 'd' and (self.left_control or self.right_control)):
+			gtk.main_quit()
+			return True
+	
+	##########################################################
+	# buffer_key_released: handle key release events, specifically
+	# useful for detecting when control and alt keys are released
+	def buffer_key_released(self, widget, event):
+		keyname = gtk.gdk.keyval_name(event.keyval)
+		if(keyname == "Control_L"):
+			self.left_control = False
+		if(keyname == "Control_R"):
+			self.right_control = False
+
 	def reset(self):
 	#reset debugging state
 		if self.p != None:
@@ -77,7 +133,7 @@ class GdbInterface:
 			#print "command = " + command
 			
 			# intercept a "quit" and turn it into a GUI exit also
-			self.run_command(command + "\n")
+			self.run_command(command)
 			if(command == "quit" or command == "q"):
 				gtk.main_quit()
 
@@ -86,9 +142,10 @@ class GdbInterface:
 	def run_command(self, cmd):
 		# save the command to history and run it
 		self.save_command(cmd)
-		self.p.stdin.write(cmd)
-		if(cmd != "quit\n"):
-			threading.Thread(target = self.read_until_prompt).start()
+		self.p.stdin.write(cmd + '\n')
+		if(cmd != "quit"):
+			threading.Thread(target = self.read_until_prompt,
+							 args = (cmd+'\n')).start()
 	
 	##########################################################
 	# save_command: save a command to the command history list
@@ -96,23 +153,25 @@ class GdbInterface:
 		if(len(self.cmd_hist) >= self.cmd_limit):
 			self.cmd_hist.pop()
 		self.cmd_hist.append(cmd)
+		self.cmd_index = len(self.cmd_hist)
 
 	##########################################################
 	# prev_command: get the previous command in the history
 	def prev_command(self):
 		if(self.cmd_index == -1):
-			self.cmd_index = len(self.cmd_hist)
+			return ""
 		self.cmd_index = max(0, self.cmd_index-1)
 		return self.cmd_hist[self.cmd_index]
 	
 	##########################################################
 	# next_command: get the next command in the history
-	def prev_command(self):
+	def next_command(self):
 		if(self.cmd_index == -1):
-			self.cmd_index = len(self.cmd_hist) - 1
-		cmd = self.cmd_hist[self.cmd_index]
+			return ""
 		self.cmd_index += 1
-		return cmd
+		if(self.cmd_index >= len(self.cmd_hist)):
+			return ""
+		return self.cmd_hist[self.cmd_index]
 
 
 class GDBG:
