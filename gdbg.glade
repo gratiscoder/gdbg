@@ -334,8 +334,11 @@
                 <property name="visible">True</property>
                 <property name="can_focus">True</property>
                 <property name="has_focus">True</property>
+                <property name="editable">False</property>
                 <property name="wrap_mode">word</property>
                 <property name="justification">fill</property>
+                <property name="left_margin">3</property>
+                <property name="right_margin">3</property>
                 <property name="buffer">textbuffer1</property>
               </object>
             </child>
@@ -346,13 +349,47 @@
           </packing>
         </child>
         <child>
+          <object class="GtkHBox" id="hbox3">
+            <property name="visible">True</property>
+            <child>
+              <object class="GtkLabel" id="label1">
+                <property name="visible">True</property>
+                <property name="label" translatable="yes">(gdb) </property>
+                <attributes>
+                  <attribute name="background" value="#ffffffffffff"/>
+                </attributes>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="position">0</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="prompt">
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <property name="has_focus">True</property>
+                <property name="has_frame">False</property>
+                <property name="invisible_char">&#x25CF;</property>
+              </object>
+              <packing>
+                <property name="position">1</property>
+              </packing>
+            </child>
+          </object>
+          <packing>
+            <property name="expand">False</property>
+            <property name="position">3</property>
+          </packing>
+        </child>
+        <child>
           <object class="GtkStatusbar" id="statusbar1">
             <property name="visible">True</property>
             <property name="spacing">2</property>
           </object>
           <packing>
             <property name="expand">False</property>
-            <property name="position">3</property>
+            <property name="position">4</property>
           </packing>
         </child>
       </object>

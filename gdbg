@@ -20,55 +20,30 @@ class GdbInterface:
 
 			gtk.gdk.threads_enter()
 		
-			# disable text insert signal handler 
-			# so output from GDB doesn't trigger signal
-			self.tbuf.handler_block(self.sig_id)
-
 			if(l == prompt):
-				self.tbuf.insert_at_cursor(l.rstrip('\n'))
+				self.tbuf.insert(self.tbuf.get_end_iter(), l.rstrip('\n'))
 			else:
 				res = mi_parser.process(l)
 				if(res.record_type == 'stream' and res.value != cmd):
-					self.tbuf.insert_at_cursor(res.value)
+					self.tbuf.insert(self.tbuf.get_end_iter(), res.value)
 		
-			# enable text insert signal handler 
-			self.tbuf.handler_unblock(self.sig_id)
-
-			self.tv.scroll_to_mark(self.tbuf.get_insert(), 0)
-			self.tbuf.apply_tag(self.tag_no_edit, 
-								self.tbuf.get_start_iter(),
-								self.tbuf.get_end_iter())
+			self.tv.scroll_to_iter(self.tbuf.get_end_iter(), 0)
 
 			gtk.gdk.threads_leave()
 		
-	def __init__(self, textview):
+	def __init__(self, textview, textentry):
 		self.cmd_limit = 100
 		self.cmd_hist = []
 		self.cmd_index = -1
 		self.tv = textview
+		self.tent = textentry
 		self.left_control = self.right_control = False
 		self.p = subprocess.Popen("gdb -q -n -i mi", shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT)
-		self.tag_no_edit = gtk.TextTag('no_edit')
-		self.tag_no_edit.set_property('editable', False)
 		self.tbuf = textview.get_buffer()
-		self.tbuf.tag_table.add(self.tag_no_edit)
-		self.sig_id = self.tbuf.connect('insert-text', self.console_insert)
-		self.tv.connect('key-press-event', self.buffer_key_pressed)
-		self.tv.connect('key-release-event', self.buffer_key_released)
+		self.tent.connect('key-press-event', self.buffer_key_pressed)
+		self.tent.connect('key-release-event', self.buffer_key_released)
 		self.read_until_prompt("")
 
-	##########################################################
-	# clear_cur_command: clear out the current line and make
-	# way for some new text (a previous or next command)
-	def clear_cur_command(self):
-		start_iter = self.tbuf.get_iter_at_line_offset(
-								self.tbuf.get_line_count() - 1,
-								len("(gdb) "))
-		self.tbuf.delete_interactive(start_iter,
-									 self.tbuf.get_end_iter(),
-									 True)
-
-	
 	##########################################################
 	# buffer_key_pressed: handle events that don't generate
 	# input (like arrow key presses and Ctrl+D) and insert command
@@ -76,16 +51,16 @@ class GdbInterface:
 		keyname = gtk.gdk.keyval_name(event.keyval)
 		#print keyname
 		if(keyname == "Up"):
-			self.clear_cur_command()
+			self.tent.set_text("")
 			prev = self.prev_command()
 			if(prev != ""):
-				self.tbuf.insert_at_cursor(prev)
+				self.tent.set_text(prev)
 			return True
 		if(keyname == "Down" and self.cmd_index < len(self.cmd_hist)):
-			self.clear_cur_command()
+			self.tent.set_text("")
 			nextcmd = self.next_command()
 			if(nextcmd != ""):
-				self.tbuf.insert_at_cursor(nextcmd)
+				self.tent.set_text(nextcmd)
 			return True
 		if(keyname == 'Control_R'):
 			self.right_control = True
@@ -94,6 +69,11 @@ class GdbInterface:
 		if(keyname == 'd' and (self.left_control or self.right_control)):
 			gtk.main_quit()
 			return True
+		if(keyname == 'Return'):
+			t = self.tent.get_text()
+			self.tent.set_text("")
+			self.tbuf.insert(self.tbuf.get_end_iter(), t+"\n")
+			self.run_command(t)
 	
 	##########################################################
 	# buffer_key_released: handle key release events, specifically
@@ -116,34 +96,14 @@ class GdbInterface:
 		#start debugging
 	
 	##########################################################
-	# console_insert: handle inserted text in text buffer
-	def console_insert(self, widget, length, new_text, position, data=None):
-		#print new_text
-		if(new_text.find("\n") >= 0):
-			# let the user edit the command to their heart's content,
-			# then figure out the command based on cursor and
-			# prompt offset. First, set cursor to end.
-			self.tbuf.place_cursor(self.tbuf.get_end_iter())
-			start_iter = self.tbuf.get_iter_at_line_offset(
-									self.tbuf.get_line_count() - 1,
-									len("(gdb) "))
-			command = self.tbuf.get_text(
-							start_iter,
-							self.tbuf.get_end_iter())
-			#print "command = " + command
-			
-			# intercept a "quit" and turn it into a GUI exit also
-			self.run_command(command)
-			if(command == "quit" or command == "q"):
-				gtk.main_quit()
-
-	##########################################################
 	# run_command: save command to history, then run it
 	def run_command(self, cmd):
 		# save the command to history and run it
 		self.save_command(cmd)
 		self.p.stdin.write(cmd + '\n')
-		if(cmd != "quit"):
+		if(cmd == "quit" or cmd == 'q' or cmd == 'QUIT'):
+			gtk.main_quit()
+		else:
 			threading.Thread(target = self.read_until_prompt,
 							 args = (cmd+'\n')).start()
 	
@@ -194,11 +154,11 @@ class GDBG:
 	def __init__(self):
 		# set the gtk builder file
 		self.builder = gtk.Builder()
-		self.builder.add_from_file("gdbg.xml")
+		self.builder.add_from_file("gdbg.glade")
 		self.builder.connect_signals(self)
 
 		# initialize GDB interface
-		self.gi = GdbInterface(self.builder.get_object('gdb_console'))
+		self.gi = GdbInterface(self.builder.get_object('gdb_console'), self.builder.get_object('prompt'))
 
 		self.window = self.builder.get_object('main_window')
 		self.window.show_all
