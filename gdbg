@@ -27,7 +27,7 @@ class GdbInterface:
 				if(res.record_type == 'stream' and res.value != cmd):
 					self.tbuf.insert(self.tbuf.get_end_iter(), res.value)
 		
-			self.tv.scroll_to_iter(self.tbuf.get_end_iter(), 0)
+			self.tv.scroll_to_mark(self.tbuf.get_insert(), 0)
 
 			gtk.gdk.threads_leave()
 		
@@ -55,12 +55,14 @@ class GdbInterface:
 			prev = self.prev_command()
 			if(prev != ""):
 				self.tent.set_text(prev)
+				self.tent.set_position(len(prev))
 			return True
 		if(keyname == "Down" and self.cmd_index < len(self.cmd_hist)):
 			self.tent.set_text("")
 			nextcmd = self.next_command()
 			if(nextcmd != ""):
 				self.tent.set_text(nextcmd)
+				self.tent.set_position(len(nextcmd))
 			return True
 		if(keyname == 'Control_R'):
 			self.right_control = True
@@ -73,6 +75,7 @@ class GdbInterface:
 			t = self.tent.get_text()
 			self.tent.set_text("")
 			self.tbuf.insert(self.tbuf.get_end_iter(), t+"\n")
+			self.tv.scroll_to_mark(self.tbuf.get_insert(), 0)
 			self.run_command(t)
 	
 	##########################################################
@@ -147,6 +150,15 @@ class GDBG:
 			self.infolabel.set_text("Do you want to debug '" + val + "' ?")
 			self.curfile = val
 			self.infobar.show()
+	def file_open(self, widget):
+		response = self.chooser.run()
+		if response == gtk.RESPONSE_OK:
+			self.gi.run_command('file ' + self.chooser.get_filename())
+		self.chooser.hide()
+	def help_about(self, widget):
+		about = self.builder.get_object('about_dialog')
+		about.run()
+		about.hide()
 	def loadfile(self, widget):
 		self.gi.reset()
 		self.l.set_text("Debugging "+self.curfile)
@@ -159,6 +171,15 @@ class GDBG:
 
 		# initialize GDB interface
 		self.gi = GdbInterface(self.builder.get_object('gdb_console'), self.builder.get_object('prompt'))
+
+		# create a persistent File chooser outside of the glade file
+		self.chooser = gtk.FileChooserDialog(title='Choose an executable to debug',
+											 parent=self.builder.get_object('main_window'),
+											 action=gtk.FILE_CHOOSER_ACTION_OPEN,
+											 buttons=(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL,
+													  gtk.STOCK_OPEN,gtk.RESPONSE_OK))
+		self.chooser.set_deletable(False)
+		self.chooser.set_decorated(False)
 
 		self.window = self.builder.get_object('main_window')
 		self.window.show_all
