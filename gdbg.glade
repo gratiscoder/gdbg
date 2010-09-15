@@ -354,7 +354,7 @@
             <child>
               <object class="GtkLabel" id="label1">
                 <property name="visible">True</property>
-                <property name="label" translatable="yes">(gdb) </property>
+                <property name="label" translatable="yes"> (gdb) </property>
                 <attributes>
                   <attribute name="background" value="#ffffffffffff"/>
                 </attributes>

@@ -20,10 +20,11 @@ class GdbInterface:
 
 			gtk.gdk.threads_enter()
 		
-			if(l == prompt):
-				self.tbuf.insert(self.tbuf.get_end_iter(), l.rstrip('\n'))
-			else:
-				res = mi_parser.process(l)
+			if(l != prompt):
+				try:
+					res = mi_parser.process(l)
+				except:
+					print "Exception caught"
 				if(res.record_type == 'stream' and res.value != cmd):
 					self.tbuf.insert(self.tbuf.get_end_iter(), res.value)
 		
@@ -72,7 +73,7 @@ class GdbInterface:
 		if(keyname == 'Return'):
 			t = self.tent.get_text()
 			self.tent.set_text("")
-			self.tbuf.insert(self.tbuf.get_end_iter(), t+"\n")
+			self.tbuf.insert(self.tbuf.get_end_iter(), "(gdb) "+t+"\n")
 			self.run_command(t)
 	
 	##########################################################
