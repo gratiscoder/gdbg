@@ -9,18 +9,96 @@ import gtk.glade
 import vte
 import subprocess
 import threading
+import re
 
 class GdbInterface:
+	#######################################################
+	# work_function - thread runs dispaching commands
+	# and notifying any waiting threads when commands finish
+	def work_function(self):
+		while(self.running):
+			self.work_cond.acquire()
+			while(len(self.cmd_queue) == 0):
+				self.work_cond.wait()
+			item = self.cmd_queue.pop()
+			self.work_cond.release()
+
+			print "executing item: " + item['cmd'] + ", " + item['type']
+
+			# write the command to the GDB slave,
+			# and return a result
+			self.p.stdin.write(item['cmd'] + '\n')
+			try:
+				if(item['type'] == 'sync'):
+					if(item['cmd'] == 'quit' or item['cmd'] == 'q'):
+						item['result'] = True
+					else:
+						item['result'] = parse_result(item['cmd'])
+					item['cond'].acquire()
+					item['cond'].notify()
+					item['cond'].release()
+				else:
+					self.read_until_prompt(item['cmd'])
+					item['result'] = True
+			except:
+				item['result'] = False
+
+			if(item['cmd'] == 'quit' or item['cmd'] == 'q'):
+				return
+
+
+	#######################################################
+	# queue_work - place a work item (a hash containing
+	# the GDB command and possibly a condition variable)
+	# on the queue, wake up the GDB slave
+	def queue_work(self, work):
+		if(work['type'] == 'sync'):
+			work['cond'] = threading.Condition()
+
+		print "queueing " + work['type'] + ", " + work['cmd']
+
+		work['result'] = None
+		self.work_cond.acquire()
+		self.cmd_queue.append(work)
+		self.work_cond.notify()
+		self.work_cond.release()
+
+		# if work type is synchronous, wait for a result
+		if(work['type'] == 'sync'):
+			while(work['result'] == None):
+				work['cond'].acquire()
+				work['cond'].wait()
+				work['cond'].release()
+			return work['result']
+
+		return True
+
+
+
+	# read from GDB slave until prompt, but don't output any detail
+	# into the buffer - quietly parse the result and return it
+	def parse_result(self, *args):
+		cmd = ''.join(v for v in args)
+		l = self.p.stdout.readline()
+		while self.prompt != l:
+			try:
+				res = mi_parser.process(l)
+				print res
+				if(res.record_type == 'result'):
+					print "saw result!"
+			except:
+				print "Exception caught: line=" + l
+			l = self.p.stdout.readline()
+
 	def read_until_prompt(self, *args):
 		l = ""
 		cmd = ''.join(v for v in args)
-		prompt = "(gdb) \n"
-		while prompt != l:
+		while self.prompt != l:
 			l = self.p.stdout.readline()
 
 			gtk.gdk.threads_enter()
 		
-			if(l == prompt):
+			if(l == self.prompt):
 				self.tbuf.insert(self.tbuf.get_end_iter(), l.rstrip('\n'))
 			else:
 				res = mi_parser.process(l)
@@ -38,11 +116,18 @@ class GdbInterface:
 		self.tv = textview
 		self.tent = textentry
 		self.left_control = self.right_control = False
+		self.prompt = "(gdb) \n"
 		self.p = subprocess.Popen("gdb -q -n -i mi", shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT)
 		self.tbuf = textview.get_buffer()
 		self.tent.connect('key-press-event', self.buffer_key_pressed)
 		self.tent.connect('key-release-event', self.buffer_key_released)
 		self.read_until_prompt("")
+		# state variables for the worker / slave thread
+		self.running = True
+		self.cmd_queue = []
+		self.work_cond = threading.Condition()
+		self.slave = threading.Thread(target = self.work_function)
+		self.slave.start()
 
 	##########################################################
 	# buffer_key_pressed: handle events that don't generate
@@ -69,6 +154,7 @@ class GdbInterface:
 		if(keyname == 'Control_L'):
 			self.left_control = True
 		if(keyname == 'd' and (self.left_control or self.right_control)):
+			self.run_command('quit')
 			gtk.main_quit()
 			return True
 		if(keyname == 'Return'):
@@ -99,16 +185,31 @@ class GdbInterface:
 		#start debugging
 	
 	##########################################################
-	# run_command: save command to history, then run it
+	# run_command: save command to history, then run it (async)
 	def run_command(self, cmd):
 		# save the command to history and run it
 		self.save_command(cmd)
-		self.p.stdin.write(cmd + '\n')
+		work = {'cmd': cmd, 'type': 'async'}
 		if(cmd == "quit" or cmd == 'q' or cmd == 'QUIT'):
+			work['type'] = 'sync'
+			self.queue_work(work)
 			gtk.main_quit()
 		else:
-			threading.Thread(target = self.read_until_prompt,
-							 args = (cmd+'\n')).start()
+			self.queue_work(work)
+
+		# detect change to main file
+		m = re.match('file\s+(.*)', cmd)
+		if(m != None):
+			self.change_file(m.group(0))
+
+	##########################################################
+	# change_file: re-populate the file->open_source menu
+	#      and try to figure out where main is / open the file
+	def change_file(self, fname):
+		print "hey"
+		#info sources
+		#info functions main
+
 	
 	##########################################################
 	# save_command: save a command to the command history list
@@ -141,8 +242,10 @@ class GDBG:
 	def hello(self, widget, data=None):
 		print "Hello World"
 	def delete_event(self, widget, data=None):
+		self.gi.run_command("quit")
 		gtk.main_quit()
 	def destroy(self, widget, data=None):
+		self.gi.run_command("quit")
 		gtk.main_quit()
 	def clipboardevent(self, clipboard, event):
 		val = clipboard.wait_for_text()

@@ -54,6 +54,17 @@
                       </object>
                     </child>
                     <child>
+                      <object class="GtkImageMenuItem" id="open_source">
+                        <property name="label">Open so_urce</property>
+                        <property name="visible">True</property>
+                        <property name="sensitive">False</property>
+                        <property name="use_underline">True</property>
+                        <property name="image">image1</property>
+                        <property name="use_stock">False</property>
+                        <property name="always_show_image">True</property>
+                      </object>
+                    </child>
+                    <child>
                       <object class="GtkImageMenuItem" id="file_save">
                         <property name="label">gtk-save</property>
                         <property name="visible">True</property>
@@ -432,5 +443,9 @@ Sam Post</property>
         </child>
       </object>
     </child>
+  </object>
+  <object class="GtkImage" id="image1">
+    <property name="visible">True</property>
+    <property name="stock">gtk-file</property>
   </object>
 </interface>
